@@ -1,6 +1,6 @@
 # MRS Ruleset Links (Always Latest)
 
-Generated at: 2025-09-26 13:10:45+00:00
+Generated at: 2025-09-26 13:15:12+00:00
 
 ```yaml
 - RULE-SET,Emby_domain,🎦 EMBY
@@ -15,6 +15,13 @@ Generated at: 2025-09-26 13:10:45+00:00
 - RULE-SET,Custom_Proxy_other,🚀 节点选择
 - RULE-SET,DMM_domain,🔞 DMM.R18
 - RULE-SET,DMM_ipcidr,🔞 DMM.R18
+- RULE-SET,TikTok_domain,🎶 TikTok
+- RULE-SET,TikTok_other,🎶 TikTok
+- RULE-SET,Netflix_domain,🎥 Netflix
+- RULE-SET,Netflix_ipcidr,🎥 Netflix
+- RULE-SET,Netflix_other,🎥 Netflix
+- RULE-SET,Disney_domain,🎥 Disney+
+- RULE-SET,Disney_other,🎥 Disney+
 - RULE-SET,GitHub_domain,👨‍💻 GitHub
 - RULE-SET,Inside_domain,🎯 国内流量
 - RULE-SET,Inside_ipcidr,🎯 国内流量
