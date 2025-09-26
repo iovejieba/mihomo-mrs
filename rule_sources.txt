@@ -3,3 +3,4 @@ ruleset=📥 PT,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/mai
 ruleset=💰 加密货币,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/Crypto.list
 ruleset=🚀 Cloudflare,https://github.com/iovejieba/clash/blob/main/Cloudflare.list
 ruleset=🚀 节点选择,https://github.com/iovejieba/clash/blob/main/Custom_Proxy.list
+ruleset=🔞 DMM.R18,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/DMM.list
