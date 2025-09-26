@@ -1,9 +1,18 @@
 # MRS Ruleset Links (Always Latest)
 
-Generated at: 2025-09-23 07:46:28+00:00
+Generated at: 2025-09-26 05:54:06+00:00
 
 ```yaml
-- RULE-SET,Pinterest_domain,🚀 国外流量
+- RULE-SET,Emby_domain,🎦 EMBY
+- RULE-SET,Emby_other,🎦 EMBY
+- RULE-SET,PrivateTracker_domain,📥 PT
+- RULE-SET,PrivateTracker_ipcidr,📥 PT
+- RULE-SET,Crypto_domain,💰 加密货币
+- RULE-SET,Crypto_other,💰 加密货币
+- RULE-SET,Cloudflare_domain,🚀 Cloudflare
+- RULE-SET,Cloudflare_other,🚀 Cloudflare
+- RULE-SET,Custom_Proxy_domain,🚀 节点选择
+- RULE-SET,Custom_Proxy_other,🚀 节点选择
 - RULE-SET,GitHub_domain,👨‍💻 GitHub
 - RULE-SET,Inside_domain,🎯 国内流量
 - RULE-SET,Inside_ipcidr,🎯 国内流量
