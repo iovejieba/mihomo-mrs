@@ -1,6 +1,6 @@
 # MRS Ruleset Links (Always Latest)
 
-Generated at: 2025-09-26 05:54:06+00:00
+Generated at: 2025-09-26 12:47:26+00:00
 
 ```yaml
 - RULE-SET,Emby_domain,🎦 EMBY
@@ -13,6 +13,8 @@ Generated at: 2025-09-26 05:54:06+00:00
 - RULE-SET,Cloudflare_other,🚀 Cloudflare
 - RULE-SET,Custom_Proxy_domain,🚀 节点选择
 - RULE-SET,Custom_Proxy_other,🚀 节点选择
+- RULE-SET,DMM_domain,🔞 DMM.R18
+- RULE-SET,DMM_ipcidr,🔞 DMM.R18
 - RULE-SET,GitHub_domain,👨‍💻 GitHub
 - RULE-SET,Inside_domain,🎯 国内流量
 - RULE-SET,Inside_ipcidr,🎯 国内流量
