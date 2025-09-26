@@ -1,7 +1,6 @@
 ruleset=🎦 EMBY,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/Emby.list
 ruleset=📥 PT,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/PrivateTracker.list
 ruleset=💰 加密货币,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/Crypto.list
-ruleset=🚀 Cloudflare,https://github.com/iovejieba/clash/blob/main/Cloudflare.list
 ruleset=🚀 节点选择,https://github.com/iovejieba/clash/blob/main/Custom_Proxy.list
 ruleset=🔞 DMM.R18,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/DMM.list
 ruleset=🎶 TikTok,https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/TikTok/TikTok.list
