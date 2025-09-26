@@ -1,1 +1,5 @@
-ruleset=🚀 国外流量,https://raw.githubusercontent.com/LM-Firefly/Rules/master/Clash-RuleSet-Classical/PROXY/Pinterest.yaml
+ruleset=🎦 EMBY,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/Emby.list
+ruleset=📥 PT,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/PrivateTracker.list
+ruleset=💰 加密货币,https://raw.githubusercontent.com/iovejieba/clash/refs/heads/main/Crypto.list
+ruleset=🚀 Cloudflare,https://github.com/iovejieba/clash/blob/main/Cloudflare.list
+ruleset=🚀 节点选择,https://github.com/iovejieba/clash/blob/main/Custom_Proxy.list
