@@ -1,6 +1,6 @@
 # MRS Ruleset Links (Always Latest)
 
-Generated at: 2025-10-26 01:36:52+00:00
+Generated at: 2025-11-02 01:38:42+00:00
 
 ```yaml
 - RULE-SET,Emby_domain,🎦 EMBY
@@ -38,6 +38,8 @@ Generated at: 2025-10-26 01:36:52+00:00
 - RULE-SET,Copilot_ipcidr,🧚 AI
 - RULE-SET,Copilot_other,🧚 AI
 - RULE-SET,Perplexity_domain,🧚 AI
+- RULE-SET,Grok_domain,🧚 AI
+- RULE-SET,Grok_other,🧚 AI
 - RULE-SET,Lan_domain,🎯 国内流量
 - RULE-SET,Lan_ipcidr,🎯 国内流量
 - RULE-SET,UnBan_domain,🎯 国内流量
