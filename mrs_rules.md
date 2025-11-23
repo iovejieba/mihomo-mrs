@@ -1,6 +1,6 @@
 # MRS Ruleset Links (Always Latest)
 
-Generated at: 2025-11-16 01:40:31+00:00
+Generated at: 2025-11-23 01:46:53+00:00
 
 ```yaml
 - RULE-SET,Emby_domain,🎦 EMBY
