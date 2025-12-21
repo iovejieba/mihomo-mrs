@@ -1,9 +1,10 @@
 # MRS Ruleset Links (Always Latest)
 
-Generated at: 2025-12-14 01:46:54+00:00
+Generated at: 2025-12-21 01:46:42+00:00
 
 ```yaml
 - RULE-SET,Emby_domain,🎦 EMBY
+- RULE-SET,Emby_ipcidr,🎦 EMBY
 - RULE-SET,Emby_other,🎦 EMBY
 - RULE-SET,PrivateTracker_domain,📥 PT
 - RULE-SET,PrivateTracker_ipcidr,📥 PT
