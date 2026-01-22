@@ -270,8 +270,8 @@ jobs:
           
           # 现在总是处理默认的 .ini 文件
           echo "Processing default .ini file."
-          INI_URL="https://raw.githubusercontent.com/cutethotw/ClashRule/main/GeneralClashRule.ini"
-          INI_FILE="$DOWNLOADS_DIR/GeneralClashRule.ini"
+          INI_URL="https://raw.githubusercontent.com/webshell8808/clash/refs/heads/main/Custom_Clash.ini"
+          INI_FILE="$DOWNLOADS_DIR/Custom_Clash.ini"
           if ! curl -L --fail -s -o "$INI_FILE" "$INI_URL"; then
               echo "WARNING: Could not download the main .ini file. Skipping."
           else
