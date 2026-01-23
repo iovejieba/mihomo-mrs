@@ -4,40 +4,58 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动触发
   schedule:
-    - cron: '0 0 * * 0'
+    - cron: '0 0 * * 0' # 每周日 UTC 时间 00:00 运行
 
 jobs:
   convert-rules:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # 授予 action 修改仓库内容的权限
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Fetch all history for all tags, so we can count previous runs on the same day.
 
-      - name: Install dependencies
+      - name: Install dependencies (jq, curl, wget)
         run: sudo apt-get update && sudo apt-get install -y jq curl wget
 
       - name: Install Mihomo
         run: |
+          # 增加版本选择的健壮性，优先选择 compatible 版本
           MIHOMO_LATEST_URL=$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest" | jq -r '.assets[] | select(.name | contains("linux-amd64-compatible")) | .browser_download_url')
+          
+          # 如果没有 compatible 版本，则选择一个通用的版本作为备用
           if [ -z "$MIHOMO_LATEST_URL" ]; then
             MIHOMO_LATEST_URL=$(curl -s "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest" | jq -r '[.assets[] | select(.name | contains("linux-amd64") and endswith(".gz"))] | .[0].browser_download_url')
           fi
+
+          echo "Downloading Mihomo from $MIHOMO_LATEST_URL"
+          
+          # 下载、解压、赋予执行权限并移动到系统路径
           wget -qO mihomo.gz "$MIHOMO_LATEST_URL"
-          gunzip mihomo.gz && chmod +x mihomo && sudo mv mihomo /usr/local/bin/
+          gunzip mihomo.gz
+          chmod +x mihomo
+          sudo mv mihomo /usr/local/bin/
+          
+          # 验证安装成功
+          echo "Mihomo version:"
+          mihomo -v
 
       - name: Process and Convert Rules
+        id: process_rules
         run: |
-          set -e
+          set -e # 如果任何命令失败，则立即退出
+
+          # --- 全局变量和初始化 ---
+          # 创建临时目录
           DOWNLOADS_DIR="downloads_tmp"
           mkdir -p "$DOWNLOADS_DIR"
 
+          # 创建版本化输出目录
           DATE_SUFFIX=$(date -u +"%Y-%m-%d")
           RUN_COUNT=$(git tag -l "${DATE_SUFFIX}-*" | wc -l)
           VERSION_TAG="${DATE_SUFFIX}-${RUN_COUNT}"
@@ -45,159 +63,334 @@ jobs:
           RULES_OUTPUT_DIR="$VERSIONED_OUTPUT_DIR/rules"
           mkdir -p "$RULES_OUTPUT_DIR"
           
+          # 临时文件，用于存储最终配置文件的各个部分
           PROVIDER_LINES_TMP="provider_lines.tmp"
           RULESET_LINES_TMP="ruleset_lines.tmp"
-          PROXY_GROUPS_TMP="proxy_groups.tmp"
           > "$PROVIDER_LINES_TMP"
           > "$RULESET_LINES_TMP"
-          > "$PROXY_GROUPS_TMP"
 
-          # --- 核心函数：MRS 物理转换 ---
+          # 运行摘要计数器
+          declare -i total_processed=0
+          declare -i total_succeeded=0
+          declare -i total_failed=0
+          declare -i total_skipped=0
+
+          # --- 函数定义 ---
+
+          # 函数：转换规则并记录结果
           convert_and_commit_rule() {
-              local type="$1"; local format="$2"; local input_file="$3"; local base_name="$4"; local output_dir="$5"; local group_name="$6"
-              local provider_name="$base_name"; local url_path="main/latest/${base_name}"
-              
+              local type="$1"
+              local format="$2"
+              local input_file="$3"
+              local base_name="$4"
+              local output_dir="$5"
+              local original_name_with_emoji="$6"
+
+              local provider_name="$base_name"
+              local final_raw_file="$output_dir/${base_name}.txt"
+              local url_path="main/latest/${base_name}"
+              local success=false
+
               if [[ "$type" == "classical" ]]; then
-                  cp "$input_file" "$output_dir/${base_name}.list"
-                  echo "  ${provider_name}: { <<: *classical, url: 'https://raw.githubusercontent.com/${{ github.repository }}/${url_path}.list' }" >> "$PROVIDER_LINES_TMP"
+                  local output_file="$output_dir/${base_name}.list"
+                  url_path+=".list"
+                  cp "$input_file" "$output_file"
+                  echo "  Archived unsupported rules to ${output_file}"
+                  success=true
               else
                   local output_file="$output_dir/${base_name}.mrs"
+                  url_path+=".mrs"
+                  local input_for_mihomo="$input_file"
+                  local temp_clean_input="cleaned_for_mrs.tmp"
+
                   if [[ "$format" == "text" ]]; then
-                      awk -F, '!/^#/ && !/^[ \t\r\n]*$/ { if (NF > 1) { print $2; } else { print $0; } }' "$input_file" > "clean.tmp"
-                      mihomo convert-ruleset "$type" "$format" "clean.tmp" "$output_file" && rm -f "clean.tmp"
-                  else
-                      mihomo convert-ruleset "$type" "$format" "$input_file" "$output_file"
+                      # 使用更健壮的 awk 命令，正确处理带后缀的 IP-CIDR 和各类 DOMAIN 规则
+                      awk -F, '
+                          !/^#/ && !/^[ \t\r\n]*$/ {
+                              if (NF > 1) { print $2; } else { print $0; }
+                          }
+                      ' "$input_file" > "$temp_clean_input"
+                      input_for_mihomo="$temp_clean_input"
                   fi
-                  local anchor_name="mrs"; [ "$type" == "ipcidr" ] && anchor_name="mrsip"
-                  echo "  ${provider_name}: { <<: *${anchor_name}, url: 'https://raw.githubusercontent.com/${{ github.repository }}/${url_path}.mrs' }" >> "$PROVIDER_LINES_TMP"
-                  echo "  - RULE-SET,${provider_name},${group_name}" >> "$RULESET_LINES_TMP"
+
+                  echo "  Converting: Type=${type}, Format=${format}"
+                  if mihomo convert-ruleset "$type" "$format" "$input_for_mihomo" "$output_file"; then
+                      echo "  Successfully ran mihomo conversion."
+                      success=true
+                  else
+                      echo "  Error: Mihomo command failed for ${input_file}."
+                  fi
+                  if [[ "$format" == "text" ]]; then rm -f "$temp_clean_input"; fi
+              fi
+
+              if [[ "$success" == true && -s "$output_file" ]]; then
+                  total_succeeded+=1
+                  cp "$input_file" "$final_raw_file"
+                  local anchor_name="$type"
+                  local full_url="https://raw.githubusercontent.com/${{ github.repository }}/${url_path}"
+                  echo "  ${provider_name}: { <<: *${anchor_name}, url: '${full_url}' }" >> "$PROVIDER_LINES_TMP"
+                  echo "- RULE-SET,${provider_name},${original_name_with_emoji}" >> "$RULESET_LINES_TMP"
+              elif [[ "$success" == true ]]; then
+                  total_failed+=1
+                  echo "  Warning: Generated file is empty, conversion likely failed silently. Skipping."
+              else
+                  total_failed+=1
               fi
           }
 
-          # --- 核心函数：域名/IP 物理分拆 ---
+          # 【已更新】函数：拆分 .list/.txt 或已解析的 .yaml 文件并转换
           split_and_convert() {
-              local input_file="$1"; local base_name="$2"; local output_dir="$3"; local group_name="$4"; local f_type="$5"
-              local d_f="${base_name}_domain.txt"; local i_f="${base_name}_ipcidr.txt"; local o_f="${base_name}_other.list"
-              > "$d_f"; > "$i_f"; > "$o_f"
-              local awk_s='function strip(s) { sub(/^[ \t\r\n]+/, "", s); sub(/[ \t\r\n]+$/, "", s); return s; } { line = strip($0); if (index(line, ",")) { prefix = toupper(substr(line, 1, index(line, ",") - 1)); if (prefix == "DOMAIN" || prefix == "DOMAIN-SUFFIX" || prefix == "DOMAIN-KEYWORD") { print line >> "'"$d_f"'" } else if (prefix == "IP-CIDR" || prefix == "IP-CIDR6") { print line >> "'"$i_f"'" } else { print line >> "'"$o_f"'" } } else { print line >> "'"$d_f"'" } }'
-              [[ "$f_type" == "yaml" ]] && (sed -n '/payload:/,$p' "$input_file" | sed -e '1d' -e 's/^[ \t-]*//;s/["'\'']//g' | awk "$awk_s") || (awk '!/^#/ && !/^[ \t\r\n]*$/' "$input_file" | awk "$awk_s")
-              [ -s "$d_f" ] && convert_and_commit_rule "domain" "text" "$d_f" "${base_name}_domain" "$output_dir" "$group_name"
-              [ -s "$i_f" ] && convert_and_commit_rule "ipcidr" "text" "$i_f" "${base_name}_ipcidr" "$output_dir" "$group_name"
-              [ -s "$o_f" ] && convert_and_commit_rule "classical" "text" "$o_f" "${base_name}_other" "$output_dir" "$group_name"
-              rm -f "$d_f" "$i_f" "$o_f"
-          }
+              local input_file="$1"
+              local base_name="$2"
+              local output_dir="$3"
+              local original_name_with_emoji="$4"
+              local file_type="$5" # "yaml" or "text"
 
-          # --- 主逻辑：解析 INI ---
-          INI_URL="https://raw.githubusercontent.com/webshell8808/clash/refs/heads/main/Custom_Clash.ini"
-          INI_FILE="$DOWNLOADS_DIR/GeneralClashRule.ini"
-          curl -L -s -o "$INI_FILE" "$INI_URL"
-
-          grep "custom_proxy_group=" "$INI_FILE" | while read -r gline; do
-              g_content=$(echo "$gline" | sed 's/custom_proxy_group=//' | tr -d '\r')
-              g_name=$(echo "$g_content" | cut -d'`' -f1); g_type=$(echo "$g_content" | cut -d'`' -f2)
-              echo "  - {name: \"$g_name\", type: $g_type, <<: *pr}" >> "$PROXY_GROUPS_TMP"
-          done
-
-          while IFS= read -r line; do
-              line_content=$(echo "$line" | sed -e 's/^\s*ruleset=//' -e 's/clash-classic://' | tr -d '\r')
-              url=$(echo "$line_content" | sed 's/.*,//'); name=$(echo "$line_content" | sed 's/,.*//')
-              if [[ "$url" == "[]FINAL" ]]; then 
-                  echo "  - MATCH,$name" >> "$RULESET_LINES_TMP"
-              else 
-                ext="${url##*.}"; d_file="$DOWNLOADS_DIR/$(date +%s%N).${ext}"
-                curl -L -s -o "$d_file" "$url" && { [[ "$ext" == "yaml" ]] && split_and_convert "$d_file" "$name" "$RULES_OUTPUT_DIR" "$name" "yaml" || split_and_convert "$d_file" "$name" "$RULES_OUTPUT_DIR" "$name" "text"; }
+              echo "  Splitting ${file_type} file into domain/ipcidr/other..."
+              
+              local domain_file="${base_name}_domain.txt"
+              local ipcidr_file="${base_name}_ipcidr.txt"
+              local other_file="${base_name}_other.list"
+              > "$domain_file"; > "$ipcidr_file"; > "$other_file"
+              
+              local awk_script='
+                  function strip(s) {
+                      sub(/^[ \t\r\n]+/, "", s);
+                      sub(/[ \t\r\n]+$/, "", s);
+                      return s;
+                  }
+                  # 主逻辑
+                  {
+                      line = strip($0);
+                      if (index(line, ",")) {
+                          prefix = toupper(substr(line, 1, index(line, ",") - 1));
+                          prefix = strip(prefix);
+                          if (prefix == "DOMAIN" || prefix == "DOMAIN-SUFFIX" || prefix == "DOMAIN-KEYWORD") {
+                              print line >> "'"$domain_file"'";
+                          } else if (prefix == "IP-CIDR" || prefix == "IP-CIDR6") {
+                              print line >> "'"$ipcidr_file"'";
+                          } else {
+                              print line >> "'"$other_file"'";
+                          }
+                      } else {
+                          # 不带逗号的行默认为域名
+                          print line >> "'"$domain_file"'";
+                      }
+                  }
+              '
+              
+              if [[ "$file_type" == "yaml" ]]; then
+                  # 从 payload: 开始解析，并移除 yaml 的 list 格式
+                  sed -n '/payload:/,$p' "$input_file" | sed -e '1d' -e "s/^[ \t-]*'//;s/'$//" -e 's/^[ \t-]*"//;s/"$//' -e 's/^[ \t-]*//' | awk "$awk_script"
+              else # text
+                  awk '!/^#/ && !/^[ \t\r\n]*$/' "$input_file" | awk "$awk_script"
               fi
-          done < <(grep -E '^\s*ruleset=' "$INI_FILE")
 
-          # --- 配置文件生成函数 ---
-          generate_config() {
-              local mode="$1"; local output="$2"
-              {
-                echo "---"
-                echo "# 策略组相关锚点"
-                echo "pr: &pr {proxies: [节点选择, 自动选择, 🇭🇰 香港节点, 🇯🇵 日本节点, 🇰🇷 韩国节点, 🇸🇬 新加坡节点, 🇺🇸 美国节点, 🇹🇼 台湾节点, 🇬🇧 英国节点, 🇫🇷 法国节点, 🇩🇪 德国节点, 🇳🇱 荷兰节点, 🇨🇦 加拿大节点, 🇹🇷 土耳其节点, 🇻🇳 越南节点, 其他, DIRECT]}"
-                echo "url-test: &url-test {type: url-test, url: http://cp.cloudflare.com/generate_204, interval: 300, include-all-providers: true, exclude-filter: \"LAN\"}"
-                echo "p: &p {type: http, interval: 86400, health-check: {enable: true, url: http://cp.cloudflare.com/generate_204, interval: 300}}"
-                echo ""
-                echo "proxy-providers:"
-                echo "  Sub-Store: { <<: *p, url: \"请在此处填入订阅地址\" }"
-                echo ""
-                echo "mixed-port: 7890"
-                echo "allow-lan: true"
-                echo "unified-delay: true"
-                echo "tcp-concurrent: true"
-                echo ""
-                echo "profile:"
-                echo "  store-selected: true"
-                [ "$mode" == "fake-ip" ] && echo "  store-fake-ip: true" || echo "  store-fake-ip: false"
-                echo ""
-                if [ "$mode" == "fake-ip" ]; then
-                  echo "dns:"
-                  echo "  enable: true"
-                  echo "  enhanced-mode: fake-ip"
-                  echo "  fake-ip-range: 198.18.0.1/16"
-                  echo "  respect-rules: true"
-                  echo "  nameserver: ['https://8.8.8.8/dns-query', '223.5.5.5']"
-                elif [ "$mode" == "redir-host" ]; then
-                  echo "dns:"
-                  echo "  enable: true"
-                  echo "  enhanced-mode: redir-host"
-                  echo "  respect-rules: true"
-                  echo "  nameserver: ['https://8.8.8.8/dns-query', '223.5.5.5']"
-                else
-                  echo "dns: { enable: false }"
-                fi
-                echo ""
-                echo "proxy-groups:"
-                echo "  - {name: 节点选择, type: select, use: [Sub-Store], proxies: [自动选择, 🇭🇰 香港节点, 🇯🇵 日本节点, 🇰🇷 韩国节点, 🇸🇬 新加坡节点, 🇺🇸 美国节点, 🇹🇼 台湾节点, 🇬🇧 英国节点, 🇫🇷 法国节点, 🇩🇪 德国节点, 🇳🇱 荷兰节点, 🇨🇦 加拿大节点, 🇹🇷 土耳其节点, 🇻🇳 越南节点, 其他, DIRECT]}"
-                echo "  - {name: 自动选择, type: url-test, use: [Sub-Store], <<: *url-test}"
-                echo "  - {name: 🇭🇰 香港节点, type: url-test, use: [Sub-Store], filter: \"(?i)港|HK|Hong Kong|HongKong\", <<: *url-test}"
-                echo "  - {name: 🇯🇵 日本节点, type: url-test, use: [Sub-Store], filter: \"(?i)日本|东京|大阪|JP|Japan\", <<: *url-test}"
-                echo "  - {name: 🇰🇷 韩国节点, type: url-test, use: [Sub-Store], filter: \"(?i)KR|Korea|KOR|首尔|韩|韓\", <<: *url-test}"
-                echo "  - {name: 🇸🇬 新加坡节点, type: url-test, use: [Sub-Store], filter: \"(?i)新加坡|坡|狮城|SG|Singapore\", <<: *url-test}"
-                echo "  - {name: 🇺🇸 美国节点, type: url-test, use: [Sub-Store], filter: \"(?i)美|波特兰|达拉斯|US|United States\", <<: *url-test}"
-                echo "  - {name: 🇹🇼 台湾节点, type: url-test, use: [Sub-Store], filter: \"(?i)台|新北|彰化|TW|Taiwan\", <<: *url-test}"
-                echo "  - {name: 🇬🇧 英国节点, type: url-test, use: [Sub-Store], filter: \"(?i)英国|UK|Great Britain\", <<: *url-test}"
-                echo "  - {name: 🇫🇷 法国节点, type: url-test, use: [Sub-Store], filter: \"(?i)法国|FR|France\", <<: *url-test}"
-                echo "  - {name: 🇩🇪 德国节点, type: url-test, use: [Sub-Store], filter: \"(?i)德国|DE|Germany\", <<: *url-test}"
-                echo "  - {name: 🇳🇱 荷兰节点, type: url-test, use: [Sub-Store], filter: \"(?i)荷兰|NL|Netherlands\", <<: *url-test}"
-                echo "  - {name: 🇨🇦 加拿大节点, type: url-test, use: [Sub-Store], filter: \"(?i)加拿大|CA|Canada\", <<: *url-test}"
-                echo "  - {name: 🇹🇷 土耳其节点, type: url-test, use: [Sub-Store], filter: \"(?i)土耳其|TR|Turkey|Türkiye\", <<: *url-test}"
-                echo "  - {name: 🇻🇳 越南节点, type: url-test, use: [Sub-Store], filter: \"(?i)越南|VN|Vietnam\", <<: *url-test}"
-                echo "  - {name: 其他, type: select, use: [Sub-Store], exclude-filter: \"(?i)HK|JP|KR|SG|US|TW|UK|FR|DE|NL|CA|TR|VN|LAN\"}"
-                cat "$PROXY_GROUPS_TMP" | sed 's/proxies: \[\]/use: \[Sub-Store\]/g'
-                echo ""
-                echo "rule-anchor:"
-                echo "  mrs: &mrs { type: http, interval: 86400, behavior: domain, format: mrs }"
-                echo "  mrsip: &mrsip { type: http, interval: 86400, behavior: ipcidr, format: mrs }"
-                echo "  classical: &classical { type: http, interval: 86400, behavior: classical, format: text }"
-                echo ""
-                echo "rule-providers:"
-                cat "$PROVIDER_LINES_TMP"
-                echo ""
-                echo "rules:"
-                echo "  - DST-PORT,3478/19302,DIRECT"
-                echo "  - GEOIP,lan,DIRECT,no-resolve"
-                cat "$RULESET_LINES_TMP"
-              } > "$output"
+              if [ -s "$domain_file" ]; then
+                  convert_and_commit_rule "domain" "text" "$domain_file" "${base_name}_domain" "$output_dir" "${original_name_with_emoji}"
+              fi
+              if [ -s "$ipcidr_file" ]; then
+                  convert_and_commit_rule "ipcidr" "text" "$ipcidr_file" "${base_name}_ipcidr" "$output_dir" "${original_name_with_emoji}"
+              fi
+              if [ -s "$other_file" ]; then
+                  convert_and_commit_rule "classical" "text" "$other_file" "${base_name}_other" "$output_dir" "${original_name_with_emoji}"
+              fi
+              
+              rm -f "$domain_file" "$ipcidr_file" "$other_file"
           }
 
-          generate_config "fake-ip" "$VERSIONED_OUTPUT_DIR/provider_config_fakeip.yaml"
-          generate_config "redir-host" "$VERSIONED_OUTPUT_DIR/provider_config_redirhost.yaml"
-          generate_config "standard" "$VERSIONED_OUTPUT_DIR/provider_config.yaml"
+          # 函数：处理单个规则
+          process_rule() {
+              local original_name="$1"
+              local url="$2"
+              total_processed+=1
+              
+              echo "---"
+              echo "Processing: Name='${original_name}', URL='${url}'"
+              if [[ "$url" == "[]FINAL" ]]; then
+                  echo "- MATCH,${original_name}" >> "$RULESET_LINES_TMP"
+                  total_succeeded+=1
+                  return
+              fi
+              if [[ "$url" == "[]GEO"* ]]; then
+                  # 去掉 []
+                  local clean_url=$(echo "$url" | sed 's/\[\]//')
+                  local rule_type=$(echo "$clean_url" | cut -d',' -f1)
+                  local rule_val=$(echo "$clean_url" | cut -d',' -f2)
+                  local rule_opt=$(echo "$clean_url" | cut -d',' -f3)
+                  if [ -n "$rule_opt" ]; then
+                      echo "- ${rule_type},${rule_val},${original_name},${rule_opt}" >> "$RULESET_LINES_TMP"
+                  else
+                      echo "- ${rule_type},${rule_val},${original_name}" >> "$RULESET_LINES_TMP"
+                  fi
+                  total_succeeded+=1
+                  return
+              fi
+              # --------------------------------------
 
-          # 根目录与 latest 同步产出
-          rm -rf latest && mkdir -p latest
-          cp -rf "$RULES_OUTPUT_DIR"/* latest/
-          cp -f "$VERSIONED_OUTPUT_DIR"/provider_config*.yaml ./
-          cp -f "$VERSIONED_OUTPUT_DIR"/provider_config*.yaml latest/
+              if ! [[ "$url" =~ ^https?:// ]]; then
+                  total_skipped+=1
+                  echo "  Warning: Unknown format, skipping: $url"
+                  return
+              fi
+
+              local sanitized_filename_base=$(basename "$url" | sed 's/\.[^.]*$//' | sed 's/[^a-zA-Z0-9_.-]//g')
+              local extension="${url##*.}"
+              local downloaded_file="$DOWNLOADS_DIR/${sanitized_filename_base}.${extension}"
+
+              echo "  Downloading to ${downloaded_file}..."
+              if ! curl -L --retry 3 --fail -s -o "$downloaded_file" "$url"; then
+                  total_failed+=1
+                  echo "  Warning: Download failed for ${url} after 3 retries, skipping."
+                  return
+              fi
+
+              if [ ! -s "$downloaded_file" ]; then
+                  total_skipped+=1
+                  echo "  Warning: Downloaded file is empty, skipping processing."
+                  return
+              fi
+
+              # 【已更新】对所有文件类型都使用拆分逻辑
+              if [[ "$extension" == "yaml" ]]; then
+                  split_and_convert "$downloaded_file" "$sanitized_filename_base" "$RULES_OUTPUT_DIR" "$original_name" "yaml"
+              elif [[ "$extension" == "txt" || "$extension" == "list" ]]; then
+                  split_and_convert "$downloaded_file" "$sanitized_filename_base" "$RULES_OUTPUT_DIR" "$original_name" "text"
+              else
+                  total_skipped+=1
+                  echo "  Warning: Unsupported file extension '.${extension}', skipping."
+              fi
+          }
+
+          # --- 主逻辑 ---
+          
+          # 如果 rule_sources.txt 存在，则处理它
+          if [ -s "rule_sources.txt" ]; then
+              echo "Custom 'rule_sources.txt' found, processing it."
+              while IFS= read -r line; do
+                  line=$(echo "$line" | tr -d '\r' | xargs)
+                  if [ -z "$line" ]; then continue; fi
+                  
+                  # 智能解析：同时支持 ini 格式和纯 URL 格式
+                  if [[ "$line" == *"ruleset="* ]]; then
+                      line_content=$(echo "$line" | sed -e 's/^\s*ruleset=//' -e 's/clash-classic://')
+                      url=$(echo "$line_content" | sed -e 's/.*,//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                      original_name=$(echo "$line_content" | sed -e 's/,.*//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                  else
+                      url="$line"
+                      name=$(basename "$url" | sed 's/\.[^.]*$//')
+                      original_name="$name"
+                  fi
+
+                  if [ -n "$url" ]; then
+                      process_rule "$original_name" "$url"
+                  fi
+              done < rule_sources.txt
+          fi
+          
+          # 现在总是处理默认的 .ini 文件
+          echo "Processing default .ini file."
+          INI_URL="https://raw.githubusercontent.com/webshell8808/clash/refs/heads/main/Custom_Clash.ini"
+          INI_FILE="$DOWNLOADS_DIR/Custom_Clash.ini"
+          if ! curl -L --fail -s -o "$INI_FILE" "$INI_URL"; then
+              echo "WARNING: Could not download the main .ini file. Skipping."
+          else
+              # 使用进程替换 <(...) 来避免子shell问题
+              while IFS= read -r line; do
+                  line_content=$(echo "$line" | tr -d '\r' | sed -e 's/^\s*ruleset=//' -e 's/clash-classic://')
+                  url=$(echo "$line_content" | sed -e 's/.*,//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                  original_name=$(echo "$line_content" | sed -e 's/,.*//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+
+                  if [ -z "$url" ]; then
+                      echo "  Warning: Could not extract a valid URL from line: '$line'. Skipping."
+                      continue
+                  fi
+                  
+                  process_rule "$original_name" "$url"
+              done < <(grep -E '^\s*ruleset=' "$INI_FILE" || true)
+          fi
+          
+          echo "--- Processing complete ---"
+          
+          # --- 生成最终配置文件 ---
+          PROVIDER_CONFIG_PATH="$VERSIONED_OUTPUT_DIR/provider_config.yaml"
+          echo "Generating final config file at $PROVIDER_CONFIG_PATH"
+
+          {
+            echo "---"
+            echo "# Generated by GitHub Actions at $(date -u --rfc-3339=seconds)"
+            echo "# This file uses YAML anchors for a compact configuration."
+            echo ""
+            echo "rule-anchor:"
+            echo "  ip: &ip { type: http, interval: 86400, behavior: ipcidr }"
+            echo "  domain: &domain { type: http, interval: 86400, behavior: domain }"
+            echo "  classical: &classical { type: http, interval: 86400, behavior: classical }"
+            echo ""
+            echo "rule-providers:"
+            cat "$PROVIDER_LINES_TMP"
+            echo ""
+            echo "# You can copy the following lines to your main config 'rules:' section."
+            echo "# The policy (e.g., PROXY, DIRECT) should be replaced with your actual policy group name."
+            echo "# rules:"
+            cat "$RULESET_LINES_TMP"
+          } > "$PROVIDER_CONFIG_PATH"
+
+          rm -f "$PROVIDER_LINES_TMP" "$RULESET_LINES_TMP"
+
+          # --- 生成汇总的 MD 文件 ---
+          MRS_RULES_MD="mrs_rules.md"
+          echo "# MRS Ruleset Links (Always Latest)" > "$MRS_RULES_MD"; echo "" >> "$MRS_RULES_MD"
+          echo "Generated at: $(date -u --rfc-3339=seconds)" >> "$MRS_RULES_MD"; echo "" >> "$MRS_RULES_MD"
+          echo '```yaml' >> "$MRS_RULES_MD"
+          grep -E -- '- RULE-SET' "$PROVIDER_CONFIG_PATH" >> "$MRS_RULES_MD" || true
+          echo '```' >> "$MRS_RULES_MD"
+
+          # --- 创建 latest 目录并复制最新文件 ---
+          LATEST_DIR="latest"
+          echo "Ensuring a clean 'latest' directory by removing and recreating it..."
+          rm -rf "$LATEST_DIR"
+          mkdir -p "$LATEST_DIR"
+
+          echo "Copying latest rules to /$LATEST_DIR directory..."
+          if [ -n "$(ls -A $RULES_OUTPUT_DIR 2>/dev/null)" ]; then
+              # 【已更新】使用 -f (force) 标志作为双重保险，确保强制覆盖
+              cp -rf "$RULES_OUTPUT_DIR"/* "$LATEST_DIR/"
+          else
+              echo "No new rule files were generated, skipping copy to latest."
+          fi
+          # 【已更新】使用 -f (force) 标志作为双重保险
+          cp -f "$PROVIDER_CONFIG_PATH" "$LATEST_DIR/provider_config.yaml"
+
+          # --- 将最新的 provider_config.yaml 复制到根目录 ---
+          echo "Copying latest provider_config.yaml to root directory..."
+          cp -f "$LATEST_DIR/provider_config.yaml" ./provider_config.yaml
+
+          # 【已更新】将版本标签导出到 GITHUB_ENV 供下一步使用
+          echo "COMMIT_MSG=feat(rules): Auto update MRS rulesets to version $VERSION_TAG" >> $GITHUB_ENV
           echo "VERSION_TAG=${VERSION_TAG}" >> $GITHUB_ENV
           git tag "$VERSION_TAG"
 
-      - name: Commit and Push
+          # --- 打印运行摘要 ---
+          echo "--- Run Summary ---"
+          echo "Rules Processed: $total_processed"
+          echo "Rules Succeeded: $total_succeeded"
+          echo "Rules Skipped (Invalid/Empty): $total_skipped"
+          echo "Rules Failed (Download/Convert): $total_failed"
+
+      - name: Commit and Push to repository
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
+          
+          git add latest/ versioned_rules/ mrs_rules.md provider_config.yaml
+          
+          # 【已更新】总是推送标签，以确保即使没有文件更改，运行计数也能正确增加
+          echo "Pushing tag ${{ env.VERSION_TAG }} to ensure run count is updated..."
           git push origin "refs/tags/${{ env.VERSION_TAG }}"
-          if ! git diff --staged --quiet; then git commit -m "feat: rules and configs for all modes ${{ env.VERSION_TAG }}"; git push; fi
+          
+          if git diff --staged --quiet; then
+            echo "No file changes to commit."
+          else
+            git commit -m "${{ env.COMMIT_MSG }}"
+            git push
+          fi
