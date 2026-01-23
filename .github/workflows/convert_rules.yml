@@ -207,7 +207,20 @@ jobs:
               
               echo "---"
               echo "Processing: Name='${original_name}', URL='${url}'"
+              if [[ "$url" == "[]FINAL" ]]; then
+                  echo "- MATCH,${original_name}" >> "$RULESET_LINES_TMP"
+                  total_succeeded+=1
+                  return
+              fi
 
+              if [[ "$url" == "[]GEO"* ]]; then
+                  # 去掉 [], 将 GEOIP,CN,no-resolve 还原回原生格式
+                  local raw_geo=$(echo "$url" | sed 's/\[\]//')
+                  echo "- ${raw_geo},${original_name}" >> "$RULESET_LINES_TMP"
+                  total_succeeded+=1
+                  return
+              fi
+              # --------------------------------------
               if ! [[ "$url" =~ ^https?:// ]]; then
                   total_skipped+=1
                   echo "  Warning: Invalid URL format (e.g., GEOIP, FINAL), skipping."
