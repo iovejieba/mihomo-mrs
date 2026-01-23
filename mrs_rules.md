@@ -1,6 +1,6 @@
 # MRS Ruleset Links (Always Latest)
 
-Generated at: 2026-01-23 05:47:09+00:00
+Generated at: 2026-01-23 06:00:07+00:00
 
 ```yaml
 - RULE-SET,Pinterest_domain,🚀 国外流量
@@ -8,7 +8,7 @@ Generated at: 2026-01-23 05:47:09+00:00
 - RULE-SET,Lan_ipcidr,🎯 全球直连
 - RULE-SET,PrivateTracker_domain,📥 PT
 - RULE-SET,PrivateTracker_ipcidr,📥 PT
-- RULE-SET,Custom_Proxy_domain,🚀 节点选择
+- RULE-SET,Custom_Proxys_domain,🚀 节点选择
 - RULE-SET,Direct_domain,🎯 全球直连
 - RULE-SET,Direct_other,🎯 全球直连
 - RULE-SET,Custom_Direct_domain,🎯 全球直连

@@ -1,0 +1,16 @@
+DOMAIN,www.torrentleech.org
+DOMAIN-SUFFIX,missav.ai
+DOMAIN-SUFFIX,missav.ws
+DOMAIN-SUFFIX,123.av
+DOMAIN-SUFFIX,1av.to
+DOMAIN-SUFFIX,uaa002.com
+DOMAIN,www.ngkingyi.com
+DOMAIN,acg.rip
+DOMAIN-SUFFIX,githubusercontent.com
+DOMAIN,production.cloudflare.docker.com
+DOMAIN,share.dmhy.org
+DOMAIN,u2.dmhy.org
+DOMAIN-SUFFIX,cn2gias.uk
+DOMAIN,micro.cr18.eu.org
+DOMAIN,emby.hohai.eu.org
+DOMAIN,glados.rocks
