@@ -210,22 +210,28 @@ jobs:
               if [[ "$url" == "[]FINAL" ]]; then
                   echo "- MATCH,${original_name}" >> "$RULESET_LINES_TMP"
                   total_succeeded+=1
+                  echo "  Success: Added MATCH/FINAL rule."
                   return
               fi
-              if [[ "$url" == "[]GEO"* ]]; then
+              if [[ "$url" == *"[]GEO"* ]]; then
                   # 去掉 []
-                  local clean_url=$(echo "$url" | sed 's/\[\]//')
-                  local rule_type=$(echo "$clean_url" | cut -d',' -f1)
-                  local rule_val=$(echo "$clean_url" | cut -d',' -f2)
-                  local rule_opt=$(echo "$clean_url" | cut -d',' -f3)
-                  if [ -n "$rule_opt" ]; then
-                      echo "- ${rule_type},${rule_val},${original_name},${rule_opt}" >> "$RULESET_LINES_TMP"
-                  else
-                      echo "- ${rule_type},${rule_val},${original_name}" >> "$RULESET_LINES_TMP"
-                  fi
+                  local raw_geo=$(echo "$url" | sed 's/\[\]//')
+                  echo "- ${raw_geo},${original_name}" >> "$RULESET_LINES_TMP"
                   total_succeeded+=1
+                  echo "  Success: Added GEO rule: ${raw_geo}"
                   return
               fi
+               #   local rule_type=$(echo "$clean_url" | cut -d',' -f1)
+               #   local rule_val=$(echo "$clean_url" | cut -d',' -f2)
+               #   local rule_opt=$(echo "$clean_url" | cut -d',' -f3)
+                #   if [ -n "$rule_opt" ]; then
+                #       echo "- ${rule_type},${rule_val},${original_name},${rule_opt}" >> "$RULESET_LINES_TMP"
+                 #  else
+                #       echo "- ${rule_type},${rule_val},${original_name}" >> "$RULESET_LINES_TMP"
+                 #  fi
+                 #  total_succeeded+=1
+                 #  return
+             #  fi
               # --------------------------------------
 
               if ! [[ "$url" =~ ^https?:// ]]; then
