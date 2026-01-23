@@ -274,15 +274,18 @@ jobs:
                   # 智能解析：同时支持 ini 格式和纯 URL 格式
                   if [[ "$line" == *"ruleset="* ]]; then
                       line_content=$(echo "$line" | sed -e 's/^\s*ruleset=//' -e 's/clash-classic://')
-                      url=$(echo "$line_content" | sed -e 's/.*,//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
-                      original_name=$(echo "$line_content" | sed -e 's/,.*//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                      original_name=$(echo "$line_content" | cut -d',' -f1 | xargs)
+                      url=$(echo "$line_content" | cut -d',' -f2- | xargs)
                   else
+                   #   url=$(echo "$line_content" | sed -e 's/.*,//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                   #   original_name=$(echo "$line_content" | sed -e 's/,.*//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                 # else
                       url="$line"
                       name=$(basename "$url" | sed 's/\.[^.]*$//')
-                      original_name="$name"
+                    #  original_name="$name"
                   fi
 
-                  if [ -n "$url" ]; then
+                  if [ -n "$url" ] && [ -n "$original_name" ]; then
                       process_rule "$original_name" "$url"
                   fi
               done < rule_sources.txt
@@ -298,8 +301,13 @@ jobs:
               # 使用进程替换 <(...) 来避免子shell问题
               while IFS= read -r line; do
                   line_content=$(echo "$line" | tr -d '\r' | sed -e 's/^\s*ruleset=//' -e 's/clash-classic://')
-                  url=$(echo "$line_content" | sed -e 's/.*,//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
-                  original_name=$(echo "$line_content" | sed -e 's/,.*//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                  original_name=$(echo "$line_content" | cut -d',' -f1 | xargs)
+                  url=$(echo "$line_content" | cut -d',' -f2- | xargs)
+                  if [ -z "$url" ] || [ -z "$original_name" ]; then
+                      continue
+                  fi
+                 # url=$(echo "$line_content" | sed -e 's/.*,//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
+                 # original_name=$(echo "$line_content" | sed -e 's/,.*//' -e 's/^[ \t]*//' -e 's/[ \t]*$//')
 
                   if [ -z "$url" ]; then
                       echo "  Warning: Could not extract a valid URL from line: '$line'. Skipping."
